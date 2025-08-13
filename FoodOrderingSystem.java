@@ -1,7 +1,7 @@
 import java.io.*;
 import java.sql.*;
 import java.util.*;
-public class FoodOrderingSystem
+public class FoodOrderingSystem1
 {
     static Scanner scanner;
     public static void main(String[] args) throws Exception {
@@ -53,6 +53,10 @@ public class FoodOrderingSystem
                     break;
                 case 3:
                     menuManager.menuByRestaurant(connect, scanner);
+                    break;
+                case 4:
+                    System.out.println("You are exited." +
+                            "Thank you fro visiting!!");
                     break;
                 default:
                     System.out.println("Invalid choice.");
@@ -153,7 +157,6 @@ class OwnerManagement {
         }
     }
 }
-
 class MenuManagement {
 //    static Scanner scanner = new Scanner(System.in);
     static final String[] CATEGORIES = {"menu_beverages", "menu_desserts", "menu_indianbread",
@@ -249,31 +252,49 @@ class MenuManagement {
         System.out.print("\nHow many items would you like to order? ");
         int count = scanner.nextInt();
         scanner.nextLine();
-        if(count == -1) {
+
+        if(count <= 0) {
             System.out.println("Enter valid numbers !");
-        } else {
-            for (int i = 1; i <= count; i++) {
-                System.out.print("Enter dish id #" + i + ": ");
-                String dishName = scanner.nextLine();
-                searchAndConfirmDish(connection, dishName);
+            return;
+        }
+
+        double totalAmount = 0.0;
+
+        for (int i = 1; i <= count; i++) {
+            System.out.print("Enter dish id #" + i + ": ");
+            String dishId = scanner.nextLine();
+            double price = searchAndConfirmDish(connection, dishId); // returns price
+            if (price > 0) {
+                totalAmount += price;
             }
         }
+
+        // Call payment processing
+        PaymentManagement paymentThread = new PaymentManagement(connection, scanner, totalAmount);
+        // Start the thread instead of calling processPayment()
+        paymentThread.start();
+
+        // Wait for payment to complete
+        paymentThread.join();
+       // PaymentManagement.processPayment();
     }
 
-    static void searchAndConfirmDish(Connection connection, String dishId) throws SQLException {
+
+    static double searchAndConfirmDish(Connection connection, String dishId) throws SQLException {
         for (String table : CATEGORIES) {
             String sql = "SELECT * FROM " + table + " WHERE dish_id = ?";
-            PreparedStatement preparedStatement = connection.prepareStatement(sql);
-                preparedStatement.setString(1, dishId);
-                ResultSet rs = preparedStatement.executeQuery();
-                if (rs.next()) {
-                    String name = rs.getString("dish_name");
-                    double price = rs.getDouble("price");
-                    System.out.println("\n Found in " + table + " | " + name + " | ₹" + price);
-                    return;
-                }
+            PreparedStatement ps = connection.prepareStatement(sql);
+            ps.setString(1, dishId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                String name = rs.getString("dish_name");
+                double price = rs.getDouble("price");
+                System.out.println("\nFound in " + table + " | " + name + " | ₹" + price);
+                return price;
             }
+        }
         System.out.println("Dish not found in the menu : (id) " + dishId);
+        return 0.0;
     }
 
     static boolean hasColumn(ResultSet resultSet, String column) {
@@ -282,6 +303,120 @@ class MenuManagement {
             return true;
         } catch (SQLException e) {
             return false;
+        }
+    }
+}
+----------------------------------------------------------------------------------------------
+//PaymentManagement class
+import java.io.*;
+import java.sql.*;
+import java.util.*;
+
+class PaymentManagement extends Thread {
+    private Connection connection;
+    private Scanner scanner;
+    private double billAmount;
+
+    public PaymentManagement(Connection connection, Scanner scanner, double billAmount) {
+        this.connection = connection;
+        this.scanner = scanner;
+        this.billAmount = billAmount;
+    }
+
+    @Override
+    public void run() {
+        try {
+            processPayment();
+        } catch (SQLException e) {
+            System.out.println("Database Error: " + e.getMessage());
+        }
+    }
+
+    // Main payment logic
+    private void processPayment() throws SQLException {
+        connection.setAutoCommit(false); // Start transaction
+
+        double enteredAmount;
+        boolean paymentDone = false;
+
+        while (!paymentDone) {
+            System.out.println("\nYour bill is: ₹" + billAmount);
+            System.out.print("Enter the amount to pay: ");
+            enteredAmount = scanner.nextDouble();
+
+            if (enteredAmount < billAmount) {
+                System.out.println("Entered amount is less than bill. Try again.");
+                continue;
+            }
+            if (enteredAmount > billAmount) {
+                System.out.println("Entered amount is greater than bill. Try again.");
+                continue;
+            }
+
+            String methodType = null;
+            System.out.println("Choose payment method:");
+            System.out.println("1. UPI");
+            System.out.println("2. Cash");
+            System.out.println("3. Card");
+            System.out.print("Enter choice: ");
+            int choice = scanner.nextInt();
+
+            switch (choice) {
+                case 1:
+                    payViaUPI();
+                    methodType = "UPI";
+                    break;
+                case 2:
+                    payViaCash();
+                    methodType = "Cash";
+                    break;
+                case 3:
+                    payViaCard();
+                    methodType = "Card";
+                    break;
+                default:
+                    System.out.println("Invalid payment method. Try again.");
+                    continue;
+            }
+
+            // Insert into DB
+            String sql = "INSERT INTO payment_process (amount, method_type, payment_date) VALUES (?, ?, NOW())";
+            PreparedStatement pstmt = connection.prepareStatement(sql);
+            pstmt.setDouble(1, enteredAmount);
+            pstmt.setString(2, methodType);
+           // pstmt.setDate(3, new java.sql.Date(System.currentTimeMillis()));
+            pstmt.executeUpdate();
+
+            // Commit transaction
+            connection.commit();
+            System.out.println("Payment of ₹" + enteredAmount + " via " + methodType + " successful! Thank you.");
+            paymentDone = true;
+        }
+    }
+
+    private void payViaUPI() {
+        System.out.println("Processing UPI payment...");
+        delay();
+        System.out.println("UPI payment completed.");
+    }
+
+    private void payViaCash() {
+        System.out.println("Processing cash payment...");
+        delay();
+        System.out.println("Cash payment completed.");
+    }
+
+    private void payViaCard() {
+        System.out.println("Processing card payment...");
+        delay();
+        System.out.println("Card payment completed.");
+    }
+
+    private void delay() {
+        try {
+            Thread.sleep(2000); // simulate delay
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 }
